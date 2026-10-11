@@ -29,7 +29,7 @@ import { formatCompact, formatNumber, formatSigned } from "@/lib/format";
 import { NEWSLETTER_SUMMARY_FIELDS, toNewsletterMap, toNewsletterOptions } from "@/lib/newsletters";
 import { getEmailStats, getHourlySends, getSubscriberHistory } from "@/lib/overview-data";
 import { PERIOD_DAYS } from "@/lib/overview-series";
-import { getSesAccount, listSesDomains } from "@/lib/ses";
+import { getMailAccount, getMailTransport, listMailDomains } from "@/lib/mail";
 import { TIME_ZONE_COOKIE, resolveTimeZone, timeZoneLabel } from "@/lib/time-zone";
 import { cn } from "@/lib/utils";
 import Campaign from "@/models/Campaign";
@@ -210,9 +210,26 @@ async function TableRecentCampaigns({ newsletterId, newsletters }) {
 }
 
 async function SectionDomains() {
-	const domains = await listSesDomains();
+	const transport = getMailTransport();
+	const domains = await listMailDomains();
 
-	if (domains.error || domains.length === 0) {
+	if (transport === "smtp") {
+		if (domains.error) {
+			return (
+				<p className="flex items-center gap-3 rounded-xl px-4 py-4 text-sm text-muted-foreground shadow-border animate-fade-in">
+					<TriangleAlert className="size-4 shrink-0 text-amber-500" />
+					<span className="truncate">SMTP not configured: {domains.error}</span>
+				</p>
+			);
+		}
+		if (!Array.isArray(domains) || domains.length === 0) {
+			return (
+				<p className="rounded-xl px-4 py-4 text-sm text-muted-foreground shadow-border animate-fade-in">
+					SMTP ready — set MAIL_FROM_DOMAINS to list your sending domains here
+				</p>
+			);
+		}
+	} else if (domains.error || domains.length === 0) {
 		return (
 			<p className="flex items-center gap-3 rounded-xl px-4 py-4 text-sm text-muted-foreground shadow-border animate-fade-in">
 				{domains.error && <TriangleAlert className="size-4 shrink-0 text-amber-500" />}
@@ -229,14 +246,37 @@ async function SectionDomains() {
 }
 
 async function StripSesAccount() {
-	const account = await getSesAccount();
+	const account = await getMailAccount();
 
 	if (account.error) {
 		return (
 			<p className="flex items-center gap-3 rounded-xl px-4 py-4 text-sm text-muted-foreground shadow-border animate-fade-in">
 				<TriangleAlert className="size-4 shrink-0 text-amber-500" />
-				<span className="truncate">SES unreachable: {account.error}</span>
+				<span className="truncate">
+					{account.transport === "smtp" ? "SMTP" : "SES"} unreachable: {account.error}
+				</span>
 			</p>
+		);
+	}
+
+	if (account.transport === "smtp") {
+		const items = [
+			{ label: "Mail transport", value: <BadgeStatus status="active" label="SMTP" /> },
+			{ label: "Host", value: `${account.host}:${account.port}` },
+			{ label: "Auth", value: account.user || "None" },
+			{ label: "Max rate", value: `${formatNumber(account.maxSendRate)}/s` },
+		];
+		return (
+			<div className="overflow-hidden rounded-xl bg-card shadow-border animate-fade-in">
+				<dl className="grid grid-cols-2 gap-px bg-border/60 lg:grid-cols-4">
+					{items.map(({ label, value }) => (
+						<div key={label} className="flex min-h-[66px] flex-col items-start justify-center gap-1.5 bg-card px-4 py-3">
+							<dt className="text-xs text-muted-foreground">{label}</dt>
+							<dd className="w-full truncate text-sm font-medium tabular-nums">{value}</dd>
+						</div>
+					))}
+				</dl>
+			</div>
 		);
 	}
 

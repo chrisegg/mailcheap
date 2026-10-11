@@ -2,7 +2,7 @@ import ImageFavicon from "@/components/ImageFavicon";
 import { rootDomain } from "@/lib/favicon";
 import { cn } from "@/lib/utils";
 
-// One row per SES domain: whether it can send, its DKIM records and its return path (MAIL FROM), in words.
+// One row per sending domain (SES identities, or MAIL_FROM_DOMAINS when using SMTP).
 export default function ListDomainStatus({ domains }) {
 	return (
 		<ul className="divide-y divide-border/60 overflow-hidden rounded-xl bg-card shadow-border">
@@ -50,12 +50,14 @@ function verificationCheck({ verified, dkimStatus }) {
 }
 
 function dkimCheck({ dkimStatus }) {
+	if (dkimStatus === "SMTP") return { key: "dkim", label: "Via SMTP provider", tone: "good" };
 	const status = STATUS_WORDS[dkimStatus] ?? STATUS_WORDS.NOT_STARTED;
 	return { key: "dkim", label: `DKIM ${status.word}`, tone: status.tone };
 }
 
 // Without a custom MAIL FROM domain, SES uses its own (amazonses.com): mail still sends, unaligned for SPF.
-function returnPathCheck({ mailFromDomain, mailFromStatus }) {
+function returnPathCheck({ mailFromDomain, mailFromStatus, dkimStatus }) {
+	if (dkimStatus === "SMTP") return { key: "return-path", label: "Provider return path", tone: "none" };
 	if (!mailFromDomain) return { key: "return-path", label: "Default return path", tone: "none" };
 	const status = STATUS_WORDS[mailFromStatus] ?? STATUS_WORDS.PENDING;
 	return { key: "return-path", label: `Return path ${status.word}`, tone: status.tone };
@@ -67,6 +69,7 @@ const STATUS_WORDS = {
 	TEMPORARY_FAILURE: { word: "retrying", tone: "wait" },
 	FAILED: { word: "failed", tone: "bad" },
 	NOT_STARTED: { word: "not set up", tone: "none" },
+	SMTP: { word: "via provider", tone: "good" },
 };
 
 const DOT_TONES = {
