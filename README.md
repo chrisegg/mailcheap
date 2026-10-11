@@ -1,6 +1,6 @@
 # Mailcheap
 
-Mailcheap is a self-hosted newsletter app on Amazon SES. Write an issue, send it to your list, publish it on the web. About $0.10 per 1,000 emails.
+Mailcheap is a self-hosted newsletter app. Write an issue, send it to your list, publish it on the web. Send through **SMTP** (any provider) or optionally Amazon SES.
 
 ![Mailcheap overview](docs/screenshots/overview.webp)
 
@@ -11,9 +11,11 @@ Mailcheap is a self-hosted newsletter app on Amazon SES. Write an issue, send it
 
 ## Why
 
-Newsletter platforms charge for every subscriber, every month. With your own SES account you pay for the emails you send: 10,000 readers and 4 issues a month is 40,000 emails, about $4.
+Newsletter platforms charge for every subscriber, every month. With your own sending account you pay for the emails you send: 10,000 readers and 4 issues a month is often a few dollars, not a few hundred.
 
-Mailcheap is the rest of what a newsletter needs, in one small Next.js app: an editor, a list, signup forms, unsubscribe handling, bounce and complaint handling, stats and a public archive. One admin, no teams, no plans. Your list stays in your database.
+Mailcheap is the rest of what a newsletter needs, in one small Next.js app: an editor, a list, signup forms, unsubscribe handling, open/click tracking, stats and a public archive. One admin, no teams, no plans. Your list stays in your database.
+
+**Mail transport:** set `SMTP_HOST` (and usually user/password) and you are done — Brevo, Mailgun, Postmark, Amazon SES SMTP, or your host all work. Amazon SES API + SNS is still supported when you want bounce/complaint webhooks into Mailcheap.
 
 ## Features
 
@@ -33,8 +35,9 @@ Mailcheap is the rest of what a newsletter needs, in one small Next.js app: an e
 
 **Keep it healthy**
 
-- SES events (deliveries, bounces, complaints) and a suppression list shared by every newsletter.
-- A send pauses itself when bounces pass 2% or complaints pass 0.08%.
+- With SES: deliveries, bounces and complaints via SNS, plus a suppression list shared by every newsletter.
+- With SMTP: open/click tracking and suppressions still work; provider bounce webhooks are not wired (use SES if you need that).
+- A send pauses itself when bounces pass 2% or complaints pass 0.08% (when those events arrive).
 - One-click unsubscribe (RFC 8058 `List-Unsubscribe` headers) and an unsubscribe page, with signed links.
 - List cleanup, off by default: readers who ignored several issues get one "do you still want this?" email, then stop getting issues.
 - Open and click tracking on your own domain, with link scanners filtered out.
@@ -45,7 +48,7 @@ Mailcheap is the rest of what a newsletter needs, in one small Next.js app: an e
 - Overview with subscribers over time, emails per hour, and delivery, open, click, bounce and complaint rates.
 - Campaign reports by mailbox provider (Gmail, Outlook, Yahoo, iCloud...).
 - Contacts with search, status filters and CSV import from any platform.
-- A domains page with each SES identity's DKIM and MAIL FROM status and the DNS records to add.
+- A domains page: SMTP connection status (and optional from-domains), or each SES identity's DKIM and MAIL FROM records.
 
 ## Screenshots
 
@@ -69,7 +72,7 @@ All names and addresses in the screenshots are made up.
 | Service | For | Cost |
 | --- | --- | --- |
 | [MongoDB](https://www.mongodb.com/atlas) | Contacts, campaigns, stats | Free tier works |
-| [Amazon SES](https://aws.amazon.com/ses/) | Sending | About $0.10 per 1,000 emails |
+| Any SMTP provider (or [Amazon SES](https://aws.amazon.com/ses/)) | Sending | Often free tier, then ~$0.10–1 per 1,000 emails |
 | [Upstash QStash](https://upstash.com/docs/qstash) | Background sending and scheduling | Free tier to start, then pay per message. One message sends 50 emails. |
 | [Vercel](https://vercel.com) or any Node.js host | Hosting | Free tier works |
 | [Upstash Redis](https://upstash.com/docs/redis) (optional) | Rate limits shared by every server instance | Free tier |
@@ -79,9 +82,13 @@ Without Redis, Mailcheap counts the same rate limits in each server instance's m
 
 Without Blob, image uploads in the editor are off. HTML and Markdown campaigns can still use images hosted anywhere.
 
+### Why not a WordPress plugin?
+
+A WordPress rewrite with “just SMTP” would still need contacts, campaigns, batching, unsubscribe, archive and tracking — most of this app — reimplemented in PHP. SMTP is the hard part of AWS to avoid; Mailcheap now uses SMTP directly so you keep the product without AWS or a WP port. If you only need transactional mail from WordPress, use an SMTP plugin on that site instead.
+
 ## Setup
 
-Plan for about an hour, most of it waiting for DNS and for AWS to approve production access.
+With SMTP, plan for about 20 minutes after DNS for your provider. SES still needs AWS production access if you choose that path.
 
 ### 1. Database
 
@@ -100,9 +107,19 @@ Sending is off until you finish the next steps, so nothing can go out by mistake
 
 If you plan to use your own domain for the dashboard (like `mailcheap.example.com`), add it in Vercel now and set `APP_URL` to it. Links in your emails use `APP_URL`, so it should be final before your first send.
 
-### 3. Amazon SES
+### 3. SMTP (recommended)
 
-Use one AWS region for everything below (the examples use `us-east-1`).
+1. Pick a provider and create SMTP credentials (examples: Brevo, Mailgun, Postmark, Resend SMTP, Amazon SES SMTP, or your host’s mailbox).
+2. Authenticate your sending domain there (SPF, DKIM, DMARC). Use a subdomain like `mail.example.com` so your main domain’s mail is unaffected.
+3. In Vercel (or `.env.local`), set:
+   - `MAIL_TRANSPORT=smtp` (optional if `SMTP_HOST` is set)
+   - `SMTP_HOST`, `SMTP_PORT` (usually `587`), `SMTP_USER`, `SMTP_PASS`
+   - `MAIL_FROM_DOMAINS=mail.example.com` (optional; powers domain warnings in the UI)
+4. Redeploy. The **Domains** page shows the SMTP host. Open and click tracking still run on your app domain. Plain SMTP does not feed bounce/complaint events into Mailcheap — switch to SES below if you need that.
+
+### 3b. Amazon SES (optional)
+
+Use SES when you want AWS bounce/complaint webhooks. Use one AWS region for everything below (the examples use `us-east-1`). Set `MAIL_TRANSPORT=ses`.
 
 1. **Verify a sending domain.** In the SES console, go to **Identities > Create identity > Domain**. Use a subdomain like `mail.example.com`, so your main domain's email is unaffected. Keep Easy DKIM with RSA 2048 and add the 3 CNAME records SES gives you at your DNS provider.
 2. **Set a custom MAIL FROM domain.** On the identity, open **Custom MAIL FROM domain > Edit**, use `bounce.mail.example.com`, and add the MX and TXT records SES shows. This aligns SPF with your domain.
@@ -134,7 +151,7 @@ Use one AWS region for everything below (the examples use `us-east-1`).
 }
 ```
 
-9. **Add the variables in Vercel** and redeploy: `SES_REGION`, `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY`, `SES_CONFIGURATION_SET` and `SES_SNS_TOPIC_ARN`.
+9. **Add the variables in Vercel** and redeploy: `MAIL_TRANSPORT=ses`, `SES_REGION`, `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY`, `SES_CONFIGURATION_SET` and `SES_SNS_TOPIC_ARN`.
 10. **Subscribe Mailcheap to the topic.** In the SNS topic, **Create subscription** with protocol HTTPS and endpoint `https://<your-app>/api/webhooks/ses`. Leave raw message delivery off. Mailcheap confirms the subscription by itself; refresh and the status turns to Confirmed.
 
 The **Domains** page in Mailcheap now shows your domain with its DKIM and MAIL FROM status. Optional: in SES **Account dashboard > Suppression list**, turn on the account-level list for bounces and complaints too.
@@ -148,7 +165,7 @@ QStash calls `APP_URL/api/jobs/...` to send each batch, so the app has to be rea
 
 ### 5. Turn sending on
 
-1. In Mailcheap, create a newsletter. The from address must be on your verified domain, and the postal address shows in every email's footer (anti-spam laws require one).
+1. In Mailcheap, create a newsletter. The from address must be allowed by your SMTP/SES provider, and the postal address shows in every email's footer (anti-spam laws require one).
 2. Set `SENDING_ENABLED=true` in Vercel and redeploy.
 3. Write a campaign, send yourself a test, then send. For a new domain, set a limit to reach your most engaged readers first, and use **Send to more** on the report once the first step looks healthy.
 
@@ -172,7 +189,7 @@ npm run dev
 
 A local MongoDB works: `docker run -d -p 27017:27017 mongo` and `MONGODB_URI=mongodb://127.0.0.1:27017/mailcheap`.
 
-- Sending stays off locally unless you set `SENDING_ENABLED=true`. When the SES keys are empty, the AWS SDK falls back to your default AWS credentials (`~/.aws`), so the domains page can show real data.
+- Sending stays off locally unless you set `SENDING_ENABLED=true`. For SMTP, point `SMTP_*` at a provider or a local catcher (Mailpit, Mailhog). For SES with empty `SES_*` keys, the AWS SDK falls back to `~/.aws`.
 - QStash can't reach `localhost`. To try a full send locally, run the QStash dev server (`npx @upstash/qstash-cli dev`) and use the URL, token and signing keys it prints.
 - `npm test` runs the unit tests and `npm run lint` runs ESLint.
 
@@ -197,10 +214,13 @@ A local MongoDB works: `docker run -d -p 27017:27017 mongo` and `MONGODB_URI=mon
 | `SESSION_SECRET` | Yes | Signs sessions and email links. 32+ random characters. Changing it breaks links in sent emails. |
 | `APP_URL` | On other hosts | Public URL of the app. On Vercel it defaults to the production domain. |
 | `SENDING_ENABLED` | To send | Nothing is sent unless it's `true` |
-| `SES_REGION` | To send | SES region, `us-east-1` by default |
-| `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY` | To send | IAM user keys |
-| `SES_CONFIGURATION_SET` | To send | Configuration set that publishes events to SNS |
-| `SES_SNS_TOPIC_ARN` | To send | SNS topic Mailcheap accepts at `/api/webhooks/ses` |
+| `MAIL_TRANSPORT` | No | `smtp` or `ses`. Default: smtp if `SMTP_HOST` is set, else ses when SES vars are set |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | To send via SMTP | Any SMTP provider. `SMTP_SECURE=true` for port 465 |
+| `MAIL_FROM_DOMAINS` | No | Comma-separated from-domains for UI warnings |
+| `SES_REGION` | SES | SES region, `us-east-1` by default |
+| `SES_ACCESS_KEY_ID`, `SES_SECRET_ACCESS_KEY` | SES | IAM user keys |
+| `SES_CONFIGURATION_SET` | SES | Configuration set that publishes events to SNS |
+| `SES_SNS_TOPIC_ARN` | SES | SNS topic Mailcheap accepts at `/api/webhooks/ses` |
 | `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY` | To send campaigns | Background sending and scheduling |
 | `QSTASH_URL` | No | QStash region other than the default, or a local QStash dev server |
 | `SEND_RATE_PER_SECOND` | No | Emails per second, 1 to 14 (default 10). Use 6 on a free Atlas cluster. |
@@ -236,9 +256,9 @@ curl -X POST https://<your-app>/api/v1/contacts \
 ## How it works
 
 - Next.js App Router, JavaScript, Tailwind CSS with shadcn/ui, MongoDB through Mongoose.
-- **Send** picks the audience (active contacts, suppressions left out, most engaged first), creates one message per reader, and queues one QStash job per batch of 50. Each job sends through the SES v2 API at `SEND_RATE_PER_SECOND` and pauses the campaign if bounce or complaint rates pass the limits.
+- **Send** picks the audience (active contacts, suppressions left out, most engaged first), creates one message per reader, and queues one QStash job per batch of 50. Each job sends through SMTP or the SES v2 API at `SEND_RATE_PER_SECOND` and pauses the campaign if bounce or complaint rates pass the limits.
 - Welcome and confirmation emails go out right away, capped at 100 every 10 minutes per newsletter.
-- SES publishes events to SNS, which posts them to `/api/webhooks/ses`. Mailcheap verifies the SNS signature, updates the message, the campaign stats and the contact, and suppresses bounced and complaining addresses for every newsletter.
+- With SES, events go to SNS → `/api/webhooks/ses`. Mailcheap verifies the SNS signature, updates the message, the campaign stats and the contact, and suppresses bounced and complaining addresses for every newsletter.
 - Opens and clicks go through `/o/...` and `/c/...` on your app's domain. Clicks within 30 seconds of the send, or from known link scanners, don't count.
 - Archive pages are static and refresh when you send or save.
 

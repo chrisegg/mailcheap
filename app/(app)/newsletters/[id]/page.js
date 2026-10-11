@@ -7,7 +7,7 @@ import { cleanupTotalsPipeline } from "@/lib/cleanup";
 import { isSendingEnabled } from "@/lib/config";
 import { connectDb } from "@/lib/db";
 import { serialize } from "@/lib/serialize";
-import { listSesDomains } from "@/lib/ses";
+import { getMailTransport, listMailDomains } from "@/lib/mail";
 import Contact from "@/models/Contact";
 import Newsletter from "@/models/Newsletter";
 
@@ -21,14 +21,16 @@ export default async function NewsletterPage({ params }) {
 	await connectDb();
 	const [newsletter, domains, cleanupTotals] = await Promise.all([
 		isNew ? null : Newsletter.findById(id).lean(),
-		listSesDomains(),
+		listMailDomains(),
 		isNew ? null : getCleanupTotals(id),
 	]);
 	if (!isNew && !newsletter) notFound();
 
-	const verifiedDomains = Array.isArray(domains)
-		? domains.filter(({ verified }) => verified).map(({ domain }) => domain)
-		: null;
+	// SMTP with no MAIL_FROM_DOMAINS: skip the warning (null). SES or an explicit domain list: enforce it.
+	const verifiedDomains =
+		Array.isArray(domains) && (domains.length > 0 || getMailTransport() === "ses")
+			? domains.filter(({ verified }) => verified).map(({ domain }) => domain)
+			: null;
 
 	return (
 		<>

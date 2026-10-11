@@ -137,7 +137,7 @@ test("campaigns pause above the bounce or complaint limit once 100 are sent", ()
 	assert.equal(getCampaignPauseReason({ sent: 5000, bounced: 99, complained: 4 }), null);
 });
 
-test("SES errors map to retry later, pause the campaign, or fail one message", () => {
+test("send errors map to retry later, pause the campaign, or fail one message", () => {
 	assert.equal(getSendErrorAction(sesError("TooManyRequestsException")), "retry");
 	assert.equal(getSendErrorAction(new Error("Sending is off (SENDING_ENABLED is not true)")), "retry");
 	assert.equal(getSendErrorAction(sesError("SendingPausedException")), "pause");
@@ -151,6 +151,8 @@ test("SES errors map to retry later, pause the campaign, or fail one message", (
 	);
 	assert.equal(getSendErrorAction(sesError("MessageRejected", "Message contains a virus")), "fail");
 	assert.equal(getSendErrorAction(sesError("BadRequestException")), "fail");
+	assert.equal(getSendErrorAction({ code: "EAUTH", message: "Invalid login" }), "pause");
+	assert.equal(getSendErrorAction({ code: "ECONNECTION", message: "Connection failed" }), "retry");
 	assert.equal(getSendErrorAction(undefined), "fail");
 });
 

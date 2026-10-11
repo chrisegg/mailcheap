@@ -8,7 +8,7 @@ import { isSendingEnabled } from "@/lib/config";
 import { connectDb } from "@/lib/db";
 import { MESSAGE_STATS_GROUP } from "@/lib/message-stats";
 import { serialize } from "@/lib/serialize";
-import { listSesDomains } from "@/lib/ses";
+import { getMailTransport, listMailDomains } from "@/lib/mail";
 import Campaign from "@/models/Campaign";
 import Contact from "@/models/Contact";
 import Message from "@/models/Message";
@@ -43,12 +43,15 @@ export default async function CampaignPage({ params }) {
 
 	const [audienceCount, domains, sendTimes] = await Promise.all([
 		Contact.countDocuments({ newsletterId: newsletter._id, status: "active" }),
-		listSesDomains(),
+		listMailDomains(),
 		getSendTimes(campaign),
 	]);
 	const fromDomain = newsletter.fromEmail.split("@")[1];
+	const transport = getMailTransport();
 	const isDomainVerified =
-		Array.isArray(domains) && domains.some(({ domain, verified }) => domain === fromDomain && verified);
+		transport === "smtp" && !(Array.isArray(domains) && domains.length > 0)
+			? true
+			: Array.isArray(domains) && domains.some(({ domain, verified }) => domain === fromDomain && verified);
 
 	return (
 		<FormCampaign
